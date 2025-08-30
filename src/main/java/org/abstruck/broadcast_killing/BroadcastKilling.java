@@ -14,7 +14,7 @@ import static org.antlr.runtime.debug.DebugEventListener.PROTOCOL_VERSION;
 @Mod(BroadcastKilling.MOD_ID)
 public class BroadcastKilling {
     public static final String MOD_ID = "broadcast_killing";
-    private static final Logger LOGGER = LogUtils.getLogger();
+    public static final Logger LOGGER = LogUtils.getLogger();
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(MOD_ID, "main"),
