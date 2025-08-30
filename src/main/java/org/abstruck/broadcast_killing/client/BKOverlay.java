@@ -2,40 +2,49 @@ package org.abstruck.broadcast_killing.client;
 
 import com.mojang.blaze3d.platform.Window;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.math.Axis;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.renderer.LightTexture;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.entity.ItemRenderer;
+import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.client.resources.model.BakedModel;
+import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import org.abstruck.broadcast_killing.BroadcastKilling;
+import org.joml.Matrix4f;
 
 import java.util.*;
 
 @Mod.EventBusSubscriber(modid = BroadcastKilling.MOD_ID)
 public class BKOverlay {
     private static final List<BKEntry> entries = new ArrayList<>();
+
     private static final int ENTRY_DURATION = 5000;
     private static final int ANIMATION_DURATION = 1200;
     private static final int ENTRY_SPACING = 15;
+    private static final int Y_OFFSET = 15;
+    private static final int MAX_ENTRIES = 3;
 
-    private static int configYOffset = 15;
-    private static int configMaxEntries = 3;
-
-    private static final Map<BKEntry, Float> currentYPositions = new HashMap<>();
-    private static final Map<BKEntry, Integer> targetYPositions = new HashMap<>();
+    private static final Map<BKEntry, Float> CURRENT_Y_POSITIONS = new HashMap<>();
+    private static final Map<BKEntry, Integer> TARGET_Y_POSITIONS = new HashMap<>();
 
     public static void addEntry(String killer, String victim, ItemStack weapon,
                                 boolean isPlayerKill, boolean isPlayerVictim) {
 
         removeExpiredEntries();
 
-        if (entries.size() >= configMaxEntries) {
+        if (entries.size() >= MAX_ENTRIES) {
             BKEntry oldest = entries.remove(0);
-            currentYPositions.remove(oldest);
-            targetYPositions.remove(oldest);
+            CURRENT_Y_POSITIONS.remove(oldest);
+            TARGET_Y_POSITIONS.remove(oldest);
 
             updateAllTargetPositions();
         }
@@ -48,9 +57,9 @@ public class BKOverlay {
         );
         entries.add(entry);
 
-        int targetY = configYOffset + (entries.size() - 1) * ENTRY_SPACING;
-        targetYPositions.put(entry, targetY);
-        currentYPositions.put(entry, (float)(targetY + ENTRY_SPACING));
+        int targetY = Y_OFFSET + (entries.size() - 1) * ENTRY_SPACING;
+        TARGET_Y_POSITIONS.put(entry, targetY);
+        CURRENT_Y_POSITIONS.put(entry, (float)(targetY + ENTRY_SPACING));
     }
 
     private static void removeExpiredEntries() {
@@ -63,8 +72,8 @@ public class BKOverlay {
 
             if (elapsed > ENTRY_DURATION + ANIMATION_DURATION) {
                 iterator.remove();
-                currentYPositions.remove(entry);
-                targetYPositions.remove(entry);
+                CURRENT_Y_POSITIONS.remove(entry);
+                TARGET_Y_POSITIONS.remove(entry);
 
                 updateAllTargetPositions();
             }
@@ -72,10 +81,10 @@ public class BKOverlay {
     }
 
     private static void updateAllTargetPositions() {
-        int startY = configYOffset;
+        int startY = Y_OFFSET;
         for (int i = 0; i < entries.size(); i++) {
             BKEntry entry = entries.get(i);
-            targetYPositions.put(entry, startY + i * ENTRY_SPACING);
+            TARGET_Y_POSITIONS.put(entry, startY + i * ENTRY_SPACING);
         }
     }
 
@@ -85,17 +94,17 @@ public class BKOverlay {
         if (entries.isEmpty()) return;
 
         for (BKEntry entry : entries) {
-            Float currentY = currentYPositions.get(entry);
-            Integer targetY = targetYPositions.get(entry);
+            Float currentY = CURRENT_Y_POSITIONS.get(entry);
+            Integer targetY = TARGET_Y_POSITIONS.get(entry);
 
             if (currentY != null && targetY != null) {
                 float diff = targetY - currentY;
                 if (Math.abs(diff) > 0.5f) {
                     float speedFactor = Math.min(0.3f, Math.abs(diff) / 10f);
                     float newY = currentY + (diff * speedFactor);
-                    currentYPositions.put(entry, newY);
+                    CURRENT_Y_POSITIONS.put(entry, newY);
                 } else {
-                    currentYPositions.put(entry, (float)targetY);
+                    CURRENT_Y_POSITIONS.put(entry, (float)targetY);
                 }
             }
         }
@@ -116,7 +125,7 @@ public class BKOverlay {
             BKEntry entry = entries.get(i);
             long elapsed = currentTime - entry.timestamp;
 
-            Float currentY = currentYPositions.get(entry);
+            Float currentY = CURRENT_Y_POSITIONS.get(entry);
             if (currentY == null) continue;
 
             boolean isExpired = elapsed > ENTRY_DURATION;
@@ -187,20 +196,42 @@ public class BKOverlay {
     private static void renderWeaponIcon(GuiGraphics guiGraphics, ItemStack stack, int x, int y, int alpha) {
         if (stack.isEmpty() || alpha < 5) return;
 
+        Minecraft minecraft = Minecraft.getInstance();
+        ItemRenderer itemRenderer = minecraft.getItemRenderer();
         PoseStack poseStack = guiGraphics.pose();
+
         poseStack.pushPose();
+
         try {
-            float scale = 0.7f;
-            poseStack.translate(x, y, 0);
-            poseStack.scale(scale, scale, 1);
+            poseStack.translate(x + 6, y + 8, 100);
+            poseStack.scale(12, 12, 12);
 
-            guiGraphics.setColor(1, 1, 1, alpha/255f);
+            Matrix4f transform = new Matrix4f();
+            transform.rotation(Axis.ZP.rotationDegrees(180));
 
-            guiGraphics.renderItem(stack, 0, 0);
-            guiGraphics.renderItemDecorations(Minecraft.getInstance().font, stack, 0, 0);
+            poseStack.mulPoseMatrix(transform);
+
+            BakedModel model = itemRenderer.getModel(stack, null, null, 0);
+
+            MultiBufferSource.BufferSource bufferSource = MultiBufferSource.immediate(
+                    Tesselator.getInstance().getBuilder()
+            );
+
+            itemRenderer.render(
+                    stack,
+                    ItemDisplayContext.FIXED,
+                    false,
+                    poseStack,
+                    bufferSource,
+                    LightTexture.FULL_BRIGHT,
+                    OverlayTexture.NO_OVERLAY,
+                    model
+            );
+
+            bufferSource.endBatch();
+
         } finally {
             poseStack.popPose();
-            guiGraphics.setColor(1, 1, 1, 1); // Alpha=1.0 (不透明)
         }
     }
 
@@ -211,10 +242,6 @@ public class BKOverlay {
         final boolean isPlayerKill;
         final boolean isPlayerVictim;
         final long timestamp;
-
-        float yOffset = 0.0f;
-        float scale = 1.0f;
-        int animStartTime = -1;
 
         public BKEntry(String killer, String victim, ItemStack weapon,
                        boolean isPlayerKill, boolean isPlayerVictim, long timestamp) {
